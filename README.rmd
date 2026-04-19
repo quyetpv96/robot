@@ -3,7 +3,7 @@ Download OCR via link
 https://sourceforge.net/projects/tesseract-ocr.mirror/files/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe/
 
 Using new Keyword
-
+##
 *** Variables ***
 ${IMAGE_EXPECTED}      ./DB_IMG/J97.png
 
