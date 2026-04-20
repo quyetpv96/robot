@@ -88,107 +88,43 @@ class ImageCompare:
     # FIND STRING (MAIN)
     # =========================
     @keyword("Find string on screen")
-    def find_string_on_screen(
-        self,
-        img_path,
-        target_string,
-        lang='vie+eng',
-        threshold=0.6,
-        debug=False
-    ):
-        pytesseract.pytesseract.tesseract_cmd = self.tesseract_path
-
+    def find_string_on_screen(self, screen_path, target_text):
         try:
-            img = cv2.imread(img_path)
+            import cv2
+            import pytesseract
+            import os
+
+            screen_path = os.path.normpath(screen_path)
+
+            img = cv2.imread(screen_path)
             if img is None:
                 return 'fail', -1, -1
 
-            proc = self._preprocess_for_ocr(img)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-            data = pytesseract.image_to_data(
-                proc,
-                lang=lang,
-                config='--psm 6',
-                output_type=Output.DICT
-            )
+            # Improve OCR accuracy
+            gray = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)[1]
 
-            n = len(data['text'])
+            data = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DICT)
 
-            # ===== Gom theo line =====
-            lines = {}
-            for i in range(n):
-                text = data['text'][i].strip()
-                if not text:
-                    continue
+            target_text = target_text.lower()
 
-                line_id = (
-                    data['block_num'][i],
-                    data['par_num'][i],
-                    data['line_num'][i]
-                )
+            for i, text in enumerate(data['text']):
+                if target_text in text.lower():
+                    x = data['left'][i]
+                    y = data['top'][i]
+                    w = data['width'][i]
+                    h = data['height'][i]
 
-                if line_id not in lines:
-                    lines[line_id] = {
-                        "words": [],
-                        "indices": []
-                    }
+                    cx = x + w // 2
+                    cy = y + h // 2
 
-                lines[line_id]["words"].append(text)
-                lines[line_id]["indices"].append(i)
-
-            best_score = 0
-            best_indices = []
-
-            target_words_len = len(target_string.split())
-
-            # ===== Sliding window matching =====
-            for line_id, content in lines.items():
-                words = content["words"]
-                indices = content["indices"]
-
-                for i in range(len(words)):
-                    for j in range(i + 1, min(i + target_words_len + 4, len(words))):
-                        phrase = " ".join(words[i:j])
-                        score = self._similar(target_string, phrase)
-
-                        if score > best_score:
-                            best_score = score
-                            best_indices = indices[i:j]
-
-            print("BEST SCORE:", best_score)
-
-            if best_score >= threshold and best_indices:
-                xs, ys, xe, ye = [], [], [], []
-
-                for idx in best_indices:
-                    x = data['left'][idx]
-                    y = data['top'][idx]
-                    w = data['width'][idx]
-                    h = data['height'][idx]
-
-                    xs.append(x)
-                    ys.append(y)
-                    xe.append(x + w)
-                    ye.append(y + h)
-
-                x1, y1 = min(xs), min(ys)
-                x2, y2 = max(xe), max(ye)
-
-                cx = (x1 + x2) // 2
-                cy = (y1 + y2) // 2
-
-                if debug:
-                    debug_img = img.copy()
-                    cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(debug_img, f"{best_score:.2f}", (x1, y1 - 5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.imwrite("midou_checking.png", debug_img)
-
-                return 'pass', int(cx), int(cy)
+                    return 'pass', int(cx), int(cy)
 
             return 'fail', -1, -1
 
         except Exception:
+            import traceback
             traceback.print_exc()
             return 'fail', -1, -1
 
@@ -201,34 +137,43 @@ class ImageCompare:
             debug=False
     ):
         try:
+            import os
+            screen_path = os.path.normpath(screen_path)
+            template_path = os.path.normpath(template_path)
+
             screen = cv2.imread(screen_path)
             template = cv2.imread(template_path)
 
             if screen is None or template is None:
                 return 'fail', -1, -1
 
-            # Convert grayscale
+            # fix threshold
+            threshold = float(threshold)
+            if threshold > 1:
+                threshold = threshold / 100.0
+
+            # grayscale
             screen_gray = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY)
             template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
 
             h, w = template_gray.shape
 
-            # Template matching
             result = cv2.matchTemplate(screen_gray, template_gray, cv2.TM_CCOEFF_NORMED)
-
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
             print("MATCH SCORE:", max_val)
+            print("THRESHOLD:", threshold)
 
             if max_val >= threshold:
                 top_left = max_loc
-                bottom_right = (top_left[0] + w, top_left[1] + h)
 
                 cx = top_left[0] + w // 2
                 cy = top_left[1] + h // 2
 
                 if debug:
                     debug_img = screen.copy()
+                    bottom_right = (top_left[0] + w, top_left[1] + h)
+
                     cv2.rectangle(debug_img, top_left, bottom_right, (0, 255, 0), 2)
                     cv2.putText(debug_img, f"{max_val:.2f}",
                                 (top_left[0], top_left[1] - 5),
@@ -244,6 +189,7 @@ class ImageCompare:
             return 'fail', -1, -1
 
         except Exception:
+            import traceback
             traceback.print_exc()
             return 'fail', -1, -1
 
